@@ -1,0 +1,1 @@
+Sample of Fluentd as side to stream application log files

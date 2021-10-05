@@ -1,0 +1,103 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: samplelog
+  labels:
+    purpose: sample
+spec:
+  selector:
+    matchLabels:
+      app: samplelog
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: samplelog
+    spec:
+      containers:
+        - name: samplelog
+          image: jtarte/logsample:latest
+          imagePullPolicy: "Always"
+          ports:
+            - containerPort: 8080
+          env:
+            - name: LOG
+              value: DEBUG
+            - name: LOGFILE
+              value: /var/app/samplelog.log
+          volumeMounts:
+          - name: applog
+            mountPath: /var/app/
+        - name: fluentd
+          image: fluent/fluentd-kubernetes-daemonset:v1-debian-elasticsearch
+          env:
+            - name: FLUENT_UID
+              value: "0"
+          volumeMounts:
+            - name: fluentd-config
+              mountPath: /fluentd/etc/fluent.conf
+              subPath: fluent.conf
+            - name: applog
+              mountPath: /var/app/
+      volumes:
+        - name: applog
+          emptyDir: {}
+        - name: fluentd-config
+          configMap:
+            name: fluentd-config  
+--- 
+apiVersion: v1
+kind: Service
+metadata:
+  name: samplelog
+  labels:
+    app: samplelog
+spec:
+  ports:
+   - port: 80
+     name: http
+     targetPort: 8080
+  selector:
+   app: samplelog
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: fluentd-config
+  labels:
+    k8s-app: fluentd-logging
+    version: v1
+data:
+  fluent.conf: |
+    <source>
+      @type tail
+      path "/var/app/*.log"
+      pos_file "/var/app/file.log.pos"
+      tag "kubernetes.samplelog"
+      <parse>
+        @type none
+      </parse>
+    </source>
+
+    <match kubernetes.samplelog>
+      @type stdout
+    </match>
+---
+kind: Route
+apiVersion: route.openshift.io/v1
+metadata:
+  name: samplelog
+  namespace: logsample
+  labels:
+    app: samplelog
+  annotations:
+    openshift.io/host.generated: 'true'
+spec:
+  to:
+    kind: Service
+    name: samplelog
+    weight: 100
+  port:
+    targetPort: http
+  wildcardPolicy: None
